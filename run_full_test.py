@@ -1,54 +1,92 @@
-#!/usr/bin/env python3
 import subprocess
 import sys
 import os
 import glob
 
 def cleanup():
+    """Очистка предыдущих тестовых файлов"""
     files_to_remove = [
-        'out.bmp', 'out.png', 'test_results.json', 'test_report.xlsx'
+        'out.bmp', 'out.png', 'test_results.json', 'test_report.xlsx', 
+        'comparison_results.json', 'final_test_report.xlsx'
     ]
     
     for file in files_to_remove:
         if os.path.exists(file):
             os.remove(file)
-            print(f"Removed {file}")
+            print(f"Удален {file}")
+    
+    # Очищаем output_photos, но сохраняем директорию
+    if os.path.exists("output_photos"):
+        for file in os.listdir("output_photos"):
+            file_path = os.path.join("output_photos", file)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        print("Очищена директория output_photos")
 
 def run_full_test():
-    print("=== Image Processor Comprehensive Test Suite ===")
-    print("Using real BMP and PNG images from input_photos/")
+    print("=== РАСШИРЕННЫЙ КОМПЛЕКСНЫЙ ТЕСТ ОБРАБОТКИ ИЗОБРАЖЕНИЙ ===")
+    print("Тестирование всех возможных случаев использования image_tool.py")
     
-    print("0. Cleaning up previous test files (keeping output_photos)...")
+    print("\n0. Очистка предыдущих тестовых файлов...")
     cleanup()
     
     if not os.path.exists("input_photos"):
-        print("ERROR: input_photos directory not found!")
+        print("ОШИБКА: Директория input_photos не найдена!")
+        print("Создайте директорию input_photos с тестовыми изображениями")
         return False
     
-    bmp_count = len([f for f in os.listdir('input_photos') if f.endswith('.bmp') and f[:-4].isdigit()])
-    png_count = len([f for f in os.listdir('input_photos') if f.endswith('.png') and f[:-4].isdigit()])
+    # Проверяем наличие изображений
+    bmp_files = [f for f in os.listdir('input_photos') if f.endswith('.bmp')]
+    png_files = [f for f in os.listdir('input_photos') if f.endswith('.png')]
     
-    print(f"Found {bmp_count} BMP images and {png_count} PNG images in input_photos/")
+    print(f"Найдено {len(bmp_files)} BMP изображений в input_photos/")
+    print(f"Найдено {len(png_files)} PNG изображений в input_photos/")
     
-    if bmp_count + png_count == 0:
-        print("ERROR: No test images found in input_photos/!")
+    if len(bmp_files) + len(png_files) == 0:
+        print("ОШИБКА: Тестовые изображения не найдены в input_photos/!")
         return False
     
+    # Создаем необходимые директории
     os.makedirs("output_photos", exist_ok=True)
     
-    print("1. Running test suite with real images...")
+    print("\n1. Запуск расширенного набора тестов...")
     result = subprocess.run([sys.executable, "test_suite.py"])
     if result.returncode != 0:
-        print("WARNING: Some tests failed")
+        print("ПРЕДУПРЕЖДЕНИЕ: Некоторые тесты не пройдены")
     
-    print("2. Generating Excel report...")
+    print("\n2. Генерация Excel отчетов...")
     result = subprocess.run([sys.executable, "generate_excel_report.py"])
     if result.returncode != 0:
-        print("ERROR: Failed to generate report")
-        return False
+        print("ОШИБКА: Не удалось сгенерировать базовый отчет")
     
-    print("3. Test completion!")
-    print(f"Results saved in output_photos/ and test_report.xlsx")
+    result = subprocess.run([sys.executable, "generate_final_report.py"])
+    if result.returncode != 0:
+        print("ОШИБКА: Не удалось сгенерировать итоговый отчет")
+    
+    print("\n3. Завершение тестирования!")
+    
+    # Показываем итоговую статистику
+    if os.path.exists("test_results.json"):
+        import json
+        with open('test_results.json', 'r') as f:
+            test_results = json.load(f)
+        passed = sum(1 for r in test_results if r['success'])
+        total = len(test_results)
+        print(f"\n=== ИТОГОВАЯ СТАТИСТИКА ===")
+        print(f"Всего тестов: {total}")
+        print(f"Пройдено: {passed}")
+        print(f"Не пройдено: {total - passed}")
+        print(f"Процент успеха: {passed/total*100:.1f}%")
+    
+    print(f"\nРезультаты сохранены в:")
+    print(f"- output_photos/ - обработанные изображения")
+    print(f"- test_results.json - детальные результаты тестов") 
+    print(f"- test_report.xlsx - Excel отчет по тестам")
+    print(f"- final_test_report.xlsx - итоговый отчет")
+    
+    print(f"\nДля сравнения с эталонными изображениями выполните:")
+    print(f"python compare_with_standards.py")
+    
     return True
 
 if __name__ == "__main__":

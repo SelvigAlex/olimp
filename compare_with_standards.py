@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import json
 import os
 import hashlib
@@ -27,15 +26,16 @@ def compare_images_pixel_by_pixel(image1_path, image2_path):
             return True
         else:
             # Найдем первую позицию, где байты отличаются
+            diff_count = 0
             for i, (b1, b2) in enumerate(zip(image1_bytes, image2_bytes)):
                 if b1 != b2:
-                    print(f"❌ Байты отличаются на позиции {i}: {b1:02X} vs {b2:02X}")
-                    # Можно вывести больше информации о различиях
-                    diff_count = sum(1 for a, b in zip(image1_bytes, image2_bytes) if a != b)
-                    print(f"❌ Всего различных байтов: {diff_count} из {len(image1_bytes)}")
-                    return False
-        
-        return True
+                    if diff_count == 0:  # Показываем только первую разницу
+                        print(f"❌ Байты отличаются на позиции {i}: {b1:02X} vs {b2:02X}")
+                    diff_count += 1
+            
+            if diff_count > 0:
+                print(f"❌ Всего различных байтов: {diff_count} из {len(image1_bytes)}")
+            return False
         
     except FileNotFoundError as e:
         print(f"❌ Файл не найден: {e}")
@@ -83,16 +83,17 @@ def strict_image_comparison():
     
     # Ищем соответствующие файлы для сравнения
     if os.path.exists(standard_dir) and os.path.exists(output_dir):
-        standard_files = [f for f in os.listdir(standard_dir) if f.endswith(('.bmp', '.png', '.jpg', '.jpeg'))]
+        # Получаем все файлы из output_photos для сравнения
+        output_files = [f for f in os.listdir(output_dir) if f.endswith(('.bmp', '.png'))]
         
-        for std_file in standard_files:
-            # Ищем соответствующий файл в output
-            output_file = std_file  # предполагаем такое же имя
-            
+        for output_file in output_files:
+            # Ищем соответствующий файл в standard_photos
+            # Предполагаем, что имена файлов совпадают
+            std_file = output_file
             std_path = os.path.join(standard_dir, std_file)
             out_path = os.path.join(output_dir, output_file)
             
-            if os.path.exists(out_path):
+            if os.path.exists(std_path):
                 print(f"\n=== Сравнение {std_file} ===")
                 
                 # Метод 1: Побайтовое сравнение
@@ -125,7 +126,7 @@ def strict_image_comparison():
                     results['summary']['mismatches'] += 1
                     print(f"❌ ТЕСТ НЕ ПРОЙДЕН: {std_file}")
             else:
-                print(f"⚠️  Файл {output_file} не найден в {output_dir}")
+                print(f"⚠️  Эталонный файл {std_file} не найден в {standard_dir}")
     
     # Расчет процента совпадения
     total = results['summary']['total_comparisons']
@@ -146,9 +147,6 @@ def strict_image_comparison():
 
 def validate_directories():
     """Проверяем существование необходимых директорий"""
-    if not os.path.exists("standard_photos"):
-        print("❌ Директория standard_photos не найдена!")
-        return False
     if not os.path.exists("output_photos"):
         print("❌ Директория output_photos не найдена!")
         return False
@@ -160,18 +158,11 @@ if __name__ == "__main__":
     if validate_directories():
         results = strict_image_comparison()
         
-        # Проверяем конкретные файлы если они существуют
-        test_files = [
-            ("1.bmp", "1.bmp"),
-            ("1.bmp", "1_circle.bmp")
-        ]
-        
-        for file1, file2 in test_files:
-            path1 = os.path.join("standard_photos", file1)
-            path2 = os.path.join("standard_photos", file2)
-            
-            if os.path.exists(path1) and os.path.exists(path2):
-                print(f"\n=== ТЕСТОВОЕ СРАВНЕНИЕ: {file1} vs {file2} ===")
-                compare_images_pixel_by_pixel(path1, path2)
+        if results['summary']['total_comparisons'] == 0:
+            print("\n⚠️  Нет файлов для сравнения")
+            print("Убедитесь, что:")
+            print("1. В output_photos есть обработанные изображения")
+            print("2. В standard_photos есть соответствующие эталонные изображения")
     else:
-        print("Необходимые директории не найдены. Создайте standard_photos и output_photos")
+        print("Необходимые директории не найдены.")
+        print("Создайте output_photos с результатами обработки")
