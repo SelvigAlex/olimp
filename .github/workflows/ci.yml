@@ -1,0 +1,139 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  run_tests:
+    name: Run image processing tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Restore pip cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install pillow openpyxl imagehash
+
+      - name: Show Python version
+        run: python --version
+
+      - name: Run tests
+        run: |
+          echo "Running image processing tests..."
+          mkdir -p output_photos
+          python run_full_test.py
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts
+          path: |
+            output_photos/
+            test_results.json
+            test_report.xlsx
+          retention-days: 7
+
+  compare_with_standards:
+    name: Compare with standard photos
+    runs-on: ubuntu-latest
+    needs: run_tests
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: test-artifacts
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Restore pip cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install pillow openpyxl imagehash
+
+      - name: Compare outputs
+        run: |
+          echo "Comparing output with standard photos..."
+          python compare_with_standards.py
+
+      - name: Upload comparison artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: comparison-artifacts
+          path: |
+            comparison_results.json
+            comparison_report.xlsx
+          retention-days: 7
+
+  generate_final_report:
+    name: Generate final test report
+    runs-on: ubuntu-latest
+    needs: [run_tests, compare_with_standards]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: test-artifacts
+
+      - name: Download comparison artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: comparison-artifacts
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Restore pip cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install pillow openpyxl imagehash
+
+      - name: Generate report
+        run: |
+          echo "Generating final test report..."
+          python generate_final_report.py
+
+      - name: Upload final report
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-report
+          path: final_test_report.xlsx
+          retention-days: 30
