@@ -1,40 +1,61 @@
 import json
 import os
 import hashlib
+from PIL import Image
+
 
 def compare_images_pixel_by_pixel(image1_path, image2_path):
     """
-    Сравнивает два изображения побайтово.
-    Возвращает True только если ВСЕ байты идентичны.
+    Сравнивает два изображения по пикселям.
+    Возвращает True только если ВСЕ пиксели идентичны.
     """
     try:
-        # Читаем оба файла как бинарные
-        with open(image1_path, 'rb') as f1:
-            image1_bytes = f1.read()
         
-        with open(image2_path, 'rb') as f2:
-            image2_bytes = f2.read()
+        # Открываем оба изображения
+        img1 = Image.open(image1_path)
+        img2 = Image.open(image2_path)
         
-        # Сравниваем размеры файлов
-        if len(image1_bytes) != len(image2_bytes):
-            print(f"❌ Размеры файлов разные: {len(image1_bytes)} vs {len(image2_bytes)} байт")
+        # Преобразуем в RGB для единообразия
+        # img1 = img1.convert('RGB')
+        # img2 = img2.convert('RGB')
+        
+        # Сравниваем размеры изображений
+        if img1.size != img2.size:
+            print(f"❌ Размеры изображений разные: {img1.size} vs {img2.size}")
             return False
         
-        # Побайтовое сравнение
-        if image1_bytes == image2_bytes:
-            print(f"✅ Изображения идентичны побайтово")
+        width, height = img1.size
+        
+        # Сравниваем пиксели
+        diff_count = 0
+        different_pixels = []
+        
+        for y in range(height):
+            for x in range(width):
+                pixel1 = img1.getpixel((x, y))
+                pixel2 = img2.getpixel((x, y))
+                
+                if pixel1 != pixel2:
+                    diff_count += 1
+                    if len(different_pixels) < 5:  # Сохраняем первые 5 отличающихся пикселей
+                        different_pixels.append((x, y, pixel1, pixel2))
+        
+        if diff_count == 0:
+            print(f"✅ Изображения идентичны по пикселям")
             return True
         else:
-            # Найдем первую позицию, где байты отличаются
-            diff_count = 0
-            for i, (b1, b2) in enumerate(zip(image1_bytes, image2_bytes)):
-                if b1 != b2:
-                    if diff_count == 0:  # Показываем только первую разницу
-                        print(f"❌ Байты отличаются на позиции {i}: {b1:02X} vs {b2:02X}")
-                    diff_count += 1
+            print(f"❌ Количество отличающихся пикселей: {diff_count} из {width * height}")
             
-            if diff_count > 0:
-                print(f"❌ Всего различных байтов: {diff_count} из {len(image1_bytes)}")
+            # Показываем информацию о первых отличающихся пикселях
+            if different_pixels:
+                print("Первые отличающиеся пиксели (x, y, pixel1, pixel2):")
+                for i, (x, y, p1, p2) in enumerate(different_pixels):
+                    print(f"  {i+1}. ({x}, {y}): {p1} vs {p2}")
+            
+            # Дополнительная статистика
+            diff_percentage = (diff_count / (width * height)) * 100
+            print(f"❌ Процент отличающихся пикселей: {diff_percentage:.2f}%")
+            
             return False
         
     except FileNotFoundError as e:
@@ -42,28 +63,6 @@ def compare_images_pixel_by_pixel(image1_path, image2_path):
         return False
     except Exception as e:
         print(f"❌ Ошибка при сравнении: {e}")
-        return False
-
-def compare_images_using_hash(image1_path, image2_path):
-    """
-    Альтернативный метод: сравнение по хешу
-    """
-    try:
-        with open(image1_path, 'rb') as f1:
-            hash1 = hashlib.md5(f1.read()).hexdigest()
-        
-        with open(image2_path, 'rb') as f2:
-            hash2 = hashlib.md5(f2.read()).hexdigest()
-        
-        if hash1 == hash2:
-            print(f"✅ Хеши идентичны: {hash1}")
-            return True
-        else:
-            print(f"❌ Хеши разные: {hash1} vs {hash2}")
-            return False
-            
-    except Exception as e:
-        print(f"❌ Ошибка при сравнении хешей: {e}")
         return False
 
 def strict_image_comparison():
@@ -98,13 +97,6 @@ def strict_image_comparison():
                 
                 # Метод 1: Побайтовое сравнение
                 match_pixel = compare_images_pixel_by_pixel(std_path, out_path)
-                
-                # Метод 2: Сравнение по хешу (для проверки)
-                match_hash = compare_images_using_hash(std_path, out_path)
-                
-                # Оба метода должны дать одинаковый результат
-                if match_pixel != match_hash:
-                    print("⚠️  Внимание: методы сравнения дали разные результаты!")
                 
                 # Используем побайтовое сравнение как основной критерий
                 match = match_pixel

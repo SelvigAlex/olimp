@@ -35,8 +35,7 @@ def init_database():
             file_type TEXT,
             width INTEGER,
             height INTEGER, 
-            file_size_kb REAL,
-            processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            file_size_kb REAL
         )''')
         
         c.execute('''CREATE TABLE IF NOT EXISTS processing_operations (
@@ -59,30 +58,50 @@ def log_processing(in_name: str, out_name: str, command: str):
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
         
-        try:
-            img = Image.open(in_name)
-            width, height = img.size
-            file_size_bytes = os.path.getsize(in_name)
-            file_size_kb = file_size_bytes / 1024.0
-            file_type = img.format or 'Unknown'
-        except Exception as e:
-            print(f"Warning: Could not get file info for logging: {e}", file=sys.stderr)
-            width = height = 0
-            file_size_kb = 0
-            file_type = 'Unknown'
-        
-        c.execute('''INSERT OR REPLACE INTO processed_files 
-                    (filename, file_type, width, height, file_size_kb)
-                    VALUES (?, ?, ?, ?, ?)''',
-                 (in_name, file_type, width, height, file_size_kb))
-        
+        # Сначала проверяем существование файла в базе
         c.execute('SELECT id FROM processed_files WHERE filename = ?', (in_name,))
         result = c.fetchone()
+        
         if result:
+            # Файл уже существует, используем существующий ID
             file_id = result[0]
+            
+            # Обновляем информацию о файле (на случай если он изменился)
+            try:
+                img = Image.open(in_name)
+                width, height = img.size
+                file_size_bytes = os.path.getsize(in_name)
+                file_size_kb = file_size_bytes / 1024.0
+                file_type = img.format or 'Unknown'
+                
+                c.execute('''UPDATE processed_files 
+                           SET file_type = ?, width = ?, height = ?, file_size_kb = ?
+                           WHERE id = ?''',
+                         (file_type, width, height, file_size_kb, file_id))
+            except Exception as e:
+                print(f"Warning: Could not update file info for logging: {e}", file=sys.stderr)
+                
         else:
+            # Файл не существует, создаем новую запись
+            try:
+                img = Image.open(in_name)
+                width, height = img.size
+                file_size_bytes = os.path.getsize(in_name)
+                file_size_kb = file_size_bytes / 1024.0
+                file_type = img.format or 'Unknown'
+            except Exception as e:
+                print(f"Warning: Could not get file info for logging: {e}", file=sys.stderr)
+                width = height = 0
+                file_size_kb = 0
+                file_type = 'Unknown'
+            
+            c.execute('''INSERT INTO processed_files 
+                        (filename, file_type, width, height, file_size_kb)
+                        VALUES (?, ?, ?, ?, ?)''',
+                     (in_name, file_type, width, height, file_size_kb))
             file_id = c.lastrowid
         
+        # Добавляем запись об операции
         c.execute('''INSERT INTO processing_operations 
                     (file_id, output_filename, operation_command)
                     VALUES (?, ?, ?)''',
@@ -154,45 +173,69 @@ def op_info(img: Image.Image, path: str):
     print(f"Width: {w}")
     print(f"Height: {h}")
 
+def validate_rectangle(left_up, right_down, width, height):
+    """Проверка прямоугольника на валидность (из нижнего кода)"""
+    x1, y1 = left_up
+    x2, y2 = right_down
+
+    if x1 >= x2 or y1 >= y2:
+        raise ValueError("Invalid rectangle: left_up must be above and to the left of right_down")
+
+    # Корректировка координат до границ изображения
+    x1 = max(0, min(x1, width - 1))
+    y1 = max(0, min(y1, height - 1))
+    x2 = max(0, min(x2, width - 1))
+    y2 = max(0, min(y2, height - 1))
+
+    return (x1, y1), (x2, y2)
+
+def op_rect(img: Image.Image, left_up:Tuple[int,int], right_down:Tuple[int,int], thickness:int, color:Tuple[int,int,int], fill:bool=False, fill_color:Optional[Tuple[int,int,int]]=None):
+    """Рисование прямоугольника (упрощенная версия из нижнего кода)"""
+    draw = ImageDraw.Draw(img)
+    
+    if thickness <= 0:
+        exit_err('Thickness must be positive', ERR_DRAW)
+    if fill and fill_color is None:
+        exit_err('Fill specified but no fill_color', ERR_CMD_ARGS)
+    
+    # Корректируем координаты как в нижнем коде
+    left_up, right_down = validate_rectangle(left_up, right_down, img.width, img.height)
+
+    if fill:
+        if fill_color is None:
+            fill_color = color
+        draw.rectangle([left_up, right_down], outline=color, fill=fill_color, width=thickness)
+    else:
+        draw.rectangle([left_up, right_down], outline=color, width=thickness)
+
+def op_circle(img: Image.Image, center:Tuple[int,int], radius:int, thickness:int, color:Tuple[int,int,int], fill:bool=False, fill_color:Optional[Tuple[int,int,int]]=None):
+    """Рисование окружности (упрощенная версия из нижнего кода)"""
+    draw = ImageDraw.Draw(img)
+    cx, cy = center
+    
+    if radius <= 0 or thickness <= 0:
+        exit_err('Radius and thickness must be positive', ERR_DRAW)
+    if fill and fill_color is None:
+        exit_err('Fill specified but no fill_color', ERR_CMD_ARGS)
+    
+    if cx < 0 or cy < 0 or cx >= img.width or cy >= img.height:
+        raise ValueError("Center coordinates out of bounds")
+
+    bbox = [(cx - radius, cy - radius), (cx + radius, cy + radius)]
+
+    if fill:
+        if fill_color is None:
+            fill_color = color
+        draw.ellipse(bbox, outline=color, fill=fill_color, width=thickness)
+    else:
+        draw.ellipse(bbox, outline=color, width=thickness)
+
 def clamp_area(left:int, up:int, right:int, down:int, w:int, h:int):
     l = max(0, min(left, w))
     u = max(0, min(up, h))
     r = max(0, min(right, w))
     d = max(0, min(down, h))
     return l,u,r,d
-
-def op_rect(img: Image.Image, left_up:Tuple[int,int], right_down:Tuple[int,int], thickness:int, color:Tuple[int,int,int], fill:bool=False, fill_color:Optional[Tuple[int,int,int]]=None):
-    draw = ImageDraw.Draw(img)
-    x1,y1 = left_up
-    x2,y2 = right_down
-    if thickness <= 0:
-        exit_err('Thickness must be positive', ERR_DRAW)
-    if fill and fill_color is None:
-        exit_err('Fill specified but no fill_color', ERR_CMD_ARGS)
-    for t in range(thickness):
-        rect = [x1+t, y1+t, x2-1-t, y2-1-t]
-        if rect[0] > rect[2] or rect[1] > rect[3]:
-            break
-        draw.rectangle(rect, outline=tuple(color))
-    if fill:
-        inner = [x1+thickness, y1+thickness, x2-1-thickness, y2-1-thickness]
-        if inner[0] <= inner[2] and inner[1] <= inner[3]:
-            draw.rectangle(inner, fill=tuple(fill_color))
-
-def op_circle(img: Image.Image, center:Tuple[int,int], radius:int, thickness:int, color:Tuple[int,int,int], fill:bool=False, fill_color:Optional[Tuple[int,int,int]]=None):
-    draw = ImageDraw.Draw(img)
-    cx,cy = center
-    if radius <= 0 or thickness <= 0:
-        exit_err('Radius and thickness must be positive', ERR_DRAW)
-    if fill and fill_color is None:
-        exit_err('Fill specified but no fill_color', ERR_CMD_ARGS)
-    for t in range(thickness):
-        bbox = [cx - radius + t, cy - radius + t, cx + radius - t, cy + radius - t]
-        draw.ellipse(bbox, outline=tuple(color))
-    if fill:
-        bbox = [cx - radius + thickness, cy - radius + thickness, cx + radius - thickness, cy + radius - thickness]
-        if bbox[0] <= bbox[2] and bbox[1] <= bbox[3]:
-            draw.ellipse(bbox, fill=tuple(fill_color))
 
 def op_rotate(img: Image.Image, left_up:Tuple[int,int], right_down:Tuple[int,int], angle:int):
     if angle not in (90,180,270):
@@ -212,6 +255,7 @@ def op_rotate(img: Image.Image, left_up:Tuple[int,int], right_down:Tuple[int,int
     img.paste(region, (l,u))
 
 def op_color_replace(img: Image.Image, old_color:Tuple[int,int,int], new_color:Tuple[int,int,int]):
+    """Замена цвета (упрощенная версия)"""
     px = img.load()
     w,h = img.size
     replaced = 0
@@ -223,45 +267,48 @@ def op_color_replace(img: Image.Image, old_color:Tuple[int,int,int], new_color:T
     return replaced
 
 def op_mirror(img: Image.Image, axis:str, left_up:Tuple[int,int], right_down:Tuple[int,int]):
+    """Отражение области (упрощенная версия)"""
     if axis not in ('x','y'):
         exit_err('Invalid axis', ERR_CMD_ARGS)
-    x1,y1 = left_up; x2,y2 = right_down
-    w,h = img.size
-    l,u,r,d = clamp_area(x1,y1,x2,y2,w,h)
-    if l>=r or u>=d:
-        return
-    box = (l,u,r,d)
-    region = img.crop(box)
+    
+    left_up, right_down = validate_rectangle(left_up, right_down, img.width, img.height)
+    
+    region = img.crop((left_up[0], left_up[1], right_down[0] + 1, right_down[1] + 1))
+
     if axis == 'x':
-        region = region.transpose(Image.FLIP_TOP_BOTTOM)
+        mirrored_region = region.transpose(Image.FLIP_LEFT_RIGHT)
     else:
-        region = region.transpose(Image.FLIP_LEFT_RIGHT)
-    img.paste(region, (l,u))
+        mirrored_region = region.transpose(Image.FLIP_TOP_BOTTOM)
+
+    img.paste(mirrored_region, (left_up[0], left_up[1]))
 
 def op_trim(img: Image.Image, left_up:Tuple[int,int], right_down:Tuple[int,int]) -> Image.Image:
-    x1,y1 = left_up; x2,y2 = right_down
-    w,h = img.size
-    l,u,r,d = clamp_area(x1,y1,x2,y2,w,h)
-    if l>=r or u>=d:
-        exit_err('Trim area empty', ERR_TRIM)
-    return img.crop((l,u,r,d))
+    """Обрезка изображения (упрощенная версия)"""
+    left_up, right_down = validate_rectangle(left_up, right_down, img.width, img.height)
+    
+    return img.crop((left_up[0], left_up[1], right_down[0] + 1, right_down[1] + 1))
 
 def op_copy(img: Image.Image, src_left_up:Tuple[int,int], src_right_down:Tuple[int,int], dest_left_up:Tuple[int,int]):
-    s_l,s_u,s_r,s_d = src_left_up[0],src_left_up[1],src_right_down[0],src_right_down[1]
-    w,h = img.size
-    l,u,r,d = clamp_area(s_l,s_u,s_r,s_d,w,h)
-    if l>=r or u>=d:
-        return
-    region = img.crop((l,u,r,d))
+    """Копирование области (упрощенная версия)"""
+    src_left_up, src_right_down = validate_rectangle(src_left_up, src_right_down, img.width, img.height)
+    
     dest_x, dest_y = dest_left_up
+
+    if dest_x < 0 or dest_y < 0 or dest_x >= img.width or dest_y >= img.height:
+        return
+
+    region = img.crop((src_left_up[0], src_left_up[1], src_right_down[0] + 1, src_right_down[1] + 1))
+
     img.paste(region, (dest_x, dest_y))
 
 def op_rgbfilter(img: Image.Image, component_name:str, component_value:int):
+    """RGB фильтр (упрощенная версия)"""
     if component_name not in ('red','green','blue'):
         exit_err('--component_name [red|green|blue] required', ERR_CMD_ARGS)
     if not (0 <= component_value <= 255):
         exit_err('--component_value 0-255', ERR_CMD_ARGS)
-    px = img.load(); w,h = img.size
+    px = img.load()
+    w,h = img.size
     for y in range(h):
         for x in range(w):
             r,g,b = px[x,y]

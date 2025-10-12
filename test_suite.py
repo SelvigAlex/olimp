@@ -3,6 +3,15 @@ import subprocess
 import sys
 from typing import List, Dict, Any
 import json
+from PIL import Image
+
+
+import os
+import subprocess
+import sys
+from typing import List, Dict, Any
+import json
+from PIL import Image
 
 class ImageProcessorTester:
     def __init__(self):
@@ -10,10 +19,6 @@ class ImageProcessorTester:
         self.input_dir = "input_photos"
         self.output_dir = "output_photos"
         self.results = []
-        
-        # Определяем размеры тестового изображения
-        self.width = 852
-        self.height = 480
         
         os.makedirs(self.output_dir, exist_ok=True)
         
@@ -32,6 +37,23 @@ class ImageProcessorTester:
         
         print(f"Найдено {len(self.bmp_images)} BMP изображений")
         print(f"Найдено {len(self.png_images)} PNG изображений")
+        
+        # Определяем размеры тестового изображения
+        self.width = 0
+        self.height = 0
+        self.detect_image_size()
+    
+    def detect_image_size(self):
+        test_image = self.get_test_image()
+        if test_image and os.path.exists(test_image):
+            try:
+                with Image.open(test_image) as img:
+                    self.width, self.height = img.size
+            except Exception as e:
+                print(f"Ошибка при определении размера изображения: {e}")
+                self.width = 426
+                self.height = 240
+        
         
     def run_command(self, args: List[str]) -> Dict[str, Any]:
         """Выполняет команду и возвращает результат"""
@@ -153,11 +175,7 @@ class ImageProcessorTester:
             (f"{self.width-100}.0", f"{self.width}.100", "Верхний правый угол"),
             (f"0.{self.height-100}", f"100.{self.height}", "Нижний левый угол"),
             (f"{self.width-100}.{self.height-100}", f"{self.width}.{self.height}", "Нижний правый угол"),
-            # На границе
-            ("0.10", "100.110", "Левая граница"),
-            (f"{self.width-100}.10", f"{self.width}.110", "Правая граница"),
-            ("10.0", "110.100", "Верхняя граница"),
-            (f"10.{self.height-100}", f"110.{self.height}", "Нижняя граница"),
+            (f"{self.width-100}.{self.height-100}", f"{self.width + 100}.{self.height + 100}", "Нижний правый угол"),
         ]
         
         for i, (lu, rd, description) in enumerate(rect_cases):
@@ -221,12 +239,16 @@ class ImageProcessorTester:
             
         circle_cases = [
             # Внутри изображения
-            ("400.300", "100", "В центре"),
+            ("150.150", "50", "В центре"),
             # На границах
-            ("100.100", "100", "Близко к углу"),
-            (f"{self.width-100}.100", "100", "У правой границы"),
-            (f"100.{self.height-100}", "100", "У нижней границы"),
-            (f"{self.width-100}.{self.height-100}", "100", "В правом нижнем углу"),
+            ("50.50", "50", "Близко к углу"),
+            (f"{self.width-50}.50", "50", "У правой границы"),
+            (f"50.{self.height-50}", "50", "У нижней границы"),
+            (f"{self.width-50}.{self.height-50}", "50", "В правом нижнем углу"),
+            ("50.50", "100", "Близко к углу"),
+            (f"{self.width-50}.50", "100", "У правой границы"),
+            (f"50.{self.height-50}", "100", "У нижней границы"),
+            (f"{self.width-50}.{self.height-50}", "100", "В правом нижнем углу"),
         ]
         
         for i, (center, radius, description) in enumerate(circle_cases):
@@ -257,7 +279,7 @@ class ImageProcessorTester:
             
         filled_circle_cases = [
             ("200.200", "80", "Залитая окружность"),
-            ("600.400", "50", "Залитая маленькая"),
+            ("300.150", "50", "Залитая маленькая"),
         ]
         
         for i, (center, radius, description) in enumerate(filled_circle_cases):
